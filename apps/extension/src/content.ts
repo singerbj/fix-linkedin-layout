@@ -10,6 +10,7 @@
  * A MutationObserver re-runs detection (throttled) so the layout stays fixed
  * across SPA navigation, lazy-loaded rails and messaging re-renders.
  */
+import CSS from './content.css';
 import { DEFAULTS, loadSettings, type Settings } from './settings';
 
 const ROOT = document.documentElement;
@@ -27,6 +28,7 @@ const TAGS = [
   'data-fll-msg-list',
   'data-fll-msg-flex',
   'data-fll-msg-scroll',
+  'data-fll-msg-layer',
 ] as const;
 type Tag = (typeof TAGS)[number];
 
@@ -40,6 +42,13 @@ const MAIN_ANCHORS = [
 ];
 const MSG_ROOT_SELECTORS = ['#msg-overlay', '.msg-overlay-container', '[data-testid="msg-overlay"]'];
 const MSG_LIST_SELECTORS = ['.msg-overlay-list-bubble'];
+/** Hosts whose (open) shadow root holds part of the page, e.g. the messaging overlay. */
+const SHADOW_HOSTS = ['#interop-outlet'];
+/**
+ * content.css for use inside a shadow root, where `html` never matches:
+ * `html.fll-active …` becomes `:host-context(html.fll-active) …`.
+ */
+const SHADOW_CSS = CSS.replace(/\bhtml((?:\.fll-[\w-]+)+)/g, ':host-context(html$1)');
 
 interface State {
   header?: HTMLElement;
@@ -58,7 +67,10 @@ let userCollapsedMessaging = false;
 let lastMsgPointer = 0;
 let wasMinimized: boolean | undefined;
 let nextRowSearch = 0;
+let urlChangedAt = 0;
 const msgObserver = new MutationObserver(() => schedule());
+const domObserver = new MutationObserver(() => schedule());
+const observedShadows = new WeakSet<ShadowRoot>();
 
 // ---------------------------------------------------------------------------
 // DOM helpers
@@ -69,8 +81,36 @@ function tag(el: Element, name: Tag, value = ''): void {
 
 function untagAll(name?: Tag): void {
   const names = name ? [name] : TAGS;
-  for (const n of names) {
-    for (const el of document.querySelectorAll(`[${n}]`)) el.removeAttribute(n);
+  for (const root of searchRoots()) {
+    for (const n of names) {
+      for (const el of root.querySelectorAll(`[${n}]`)) el.removeAttribute(n);
+    }
+  }
+}
+
+function shadowRoots(): ShadowRoot[] {
+  const roots: ShadowRoot[] = [];
+  for (const sel of SHADOW_HOSTS) {
+    for (const host of document.querySelectorAll(sel)) if (host.shadowRoot) roots.push(host.shadowRoot);
+  }
+  return roots;
+}
+
+function searchRoots(): (Document | ShadowRoot)[] {
+  return [document, ...shadowRoots()];
+}
+
+/** Our styles and the body observer don't reach into shadow roots, so add both. */
+function adoptShadow(root: ShadowRoot): void {
+  if (![...root.children].some((el) => el.hasAttribute('data-fll-style'))) {
+    const style = document.createElement('style');
+    style.setAttribute('data-fll-style', '');
+    style.textContent = SHADOW_CSS;
+    root.append(style);
+  }
+  if (!observedShadows.has(root)) {
+    observedShadows.add(root);
+    domObserver.observe(root, { childList: true, subtree: true });
   }
 }
 
@@ -95,24 +135,35 @@ function flowChildren(el: Element): HTMLElement[] {
   });
 }
 
-/** True when `el` lays out at least two substantial children side by side. */
-function isColumnRow(el: Element): boolean {
-  if (!(el instanceof HTMLElement) || el === document.body) return false;
+/**
+ * The children of `el` that it lays out side by side as columns, ordered by
+ * position, or undefined when it isn't a column row. Full-width siblings above
+ * or below the columns (banners, footers) aren't columns.
+ */
+function rowColumns(el: Element): HTMLElement[] | undefined {
+  if (!(el instanceof HTMLElement) || el === document.body) return undefined;
   const kids = flowChildren(el).filter((c) => {
     const r = c.getBoundingClientRect();
     return r.width >= 150 && r.height >= 40;
   });
-  if (kids.length < 2) return false;
-  const rects = kids.map((k) => k.getBoundingClientRect()).sort((a, b) => a.left - b.left);
+  if (kids.length < 2) return undefined;
+  const band = kids
+    .map((k) => k.getBoundingClientRect())
+    .reduce((a, b) => (b.height > a.height ? b : a));
+  const cols = kids
+    .filter((k) => {
+      const r = k.getBoundingClientRect();
+      return r.top < band.bottom && r.bottom > band.top;
+    })
+    .sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
+  if (cols.length < 2) return undefined;
+  const rects = cols.map((c) => c.getBoundingClientRect());
   for (let i = 1; i < rects.length; i++) {
-    const a = rects[i - 1];
-    const b = rects[i];
-    if (b.left < a.right - 2) return false; // overlapping → stacked, not columns
-    if (b.top >= a.bottom || a.top >= b.bottom) return false; // no vertical overlap
+    if (rects[i].left < rects[i - 1].right - 2) return undefined; // overlapping → stacked, not columns
   }
   const widest = Math.max(...rects.map((r) => r.width));
   const span = rects[rects.length - 1].right - rects[0].left;
-  return widest >= 380 && span >= 700;
+  return widest >= 380 && span >= 700 ? cols : undefined;
 }
 
 function firstVisible(selectors: string[], root: ParentNode = document): HTMLElement | undefined {
@@ -180,21 +231,61 @@ function applyHeader(): void {
 // ---------------------------------------------------------------------------
 // Column row
 
-function findRow(): { row: HTMLElement; anchor: HTMLElement } | undefined {
+interface FoundRow {
+  row: HTMLElement;
+  cols: HTMLElement[];
+  anchor: HTMLElement;
+}
+
+function mainAnchors(): HTMLElement[] {
+  const out: HTMLElement[] = [];
   for (const sel of MAIN_ANCHORS) {
-    for (const anchor of document.querySelectorAll(sel)) {
-      if (!isRendered(anchor) || state.header?.contains(anchor)) continue;
-      // Walk up: the first ancestor that lays out columns side by side.
-      for (let el = anchor.parentElement; el && el !== document.body; el = el.parentElement) {
-        if (isColumnRow(el)) return { row: el, anchor };
-      }
-      // `main` may wrap all columns: look a few levels down instead.
-      const queue: Array<[Element, number]> = [[anchor, 0]];
-      while (queue.length) {
-        const [el, depth] = queue.shift()!;
-        if (isColumnRow(el)) return { row: el as HTMLElement, anchor: el as HTMLElement };
-        if (depth < 6) for (const c of el.children) queue.push([c, depth + 1]);
-      }
+    for (const el of document.querySelectorAll(sel)) {
+      if (isRendered(el) && !state.header?.contains(el)) out.push(el);
+    }
+  }
+  return out;
+}
+
+/** A row of two or more columns side by side, found from the main content. */
+function findColumnRow(): FoundRow | undefined {
+  for (const anchor of mainAnchors()) {
+    // Walk up: the first ancestor that lays out columns side by side.
+    for (let el = anchor.parentElement; el && el !== document.body; el = el.parentElement) {
+      const cols = rowColumns(el);
+      if (cols) return { row: el, cols, anchor };
+    }
+    // `main` may wrap all columns: look a few levels down instead.
+    const queue: Array<[Element, number]> = [[anchor, 0]];
+    while (queue.length) {
+      const [el, depth] = queue.shift()!;
+      const cols = rowColumns(el);
+      if (cols) return { row: el as HTMLElement, cols, anchor: el as HTMLElement };
+      if (depth < 6) for (const c of el.children) queue.push([c, depth + 1]);
+    }
+  }
+  return undefined;
+}
+
+/** A single column that LinkedIn capped in width and centred (e.g. Events). */
+function isCappedColumn(el: Element): el is HTMLElement {
+  if (!isRendered(el) || !el.parentElement) return false;
+  const pos = getComputedStyle(el).position;
+  if (pos === 'fixed' || pos === 'absolute') return false;
+  const r = el.getBoundingClientRect();
+  const p = el.parentElement.getBoundingClientRect();
+  const left = r.left - p.left;
+  const right = p.right - r.right;
+  return r.width >= 500 && r.height >= 200 && left >= 40 && Math.abs(left - right) <= 40;
+}
+
+function findSingleColumn(): FoundRow | undefined {
+  for (const anchor of mainAnchors()) {
+    const queue: Array<[Element, number]> = [[anchor, 0]];
+    while (queue.length) {
+      const [el, depth] = queue.shift()!;
+      if (isCappedColumn(el)) return { row: el.parentElement!, cols: [el], anchor: el };
+      if (depth < 8) for (const c of el.children) queue.push([c, depth + 1]);
     }
   }
   return undefined;
@@ -213,8 +304,19 @@ function mainIndex(cols: HTMLElement[], anchor: HTMLElement): number {
 
 function rowNeedsRetag(row: HTMLElement): boolean {
   if (!row.isConnected || !row.hasAttribute('data-fll-row')) return true;
-  const cols = flowChildren(row);
-  return cols.length < 2 || cols.some((c) => !c.hasAttribute('data-fll-col'));
+  const tagged = [...row.children].filter((c) => c.hasAttribute('data-fll-col'));
+  if (tagged.length === 1) {
+    if (!isRendered(tagged[0])) return true;
+    // A single column may only be the first part of the page to render:
+    // keep looking for real columns for a while.
+    if (Date.now() - urlChangedAt < 10_000 && Date.now() >= nextRowSearch) {
+      nextRowSearch = Date.now() + 1000;
+      return !!findColumnRow();
+    }
+    return false;
+  }
+  const cols = rowColumns(row);
+  return !cols || cols.some((c) => !c.hasAttribute('data-fll-col'));
 }
 
 function applyRow(): void {
@@ -226,19 +328,24 @@ function applyRow(): void {
   for (const el of document.querySelectorAll('[data-fll-widen]')) {
     if (!state.header?.contains(el)) el.removeAttribute('data-fll-widen');
   }
+  state.row?.style.removeProperty('--fll-cols');
   state.row = undefined;
 
   if (Date.now() < nextRowSearch) return;
-  const found = findRow();
+  const found = findColumnRow() ?? findSingleColumn();
   if (!found) {
     nextRowSearch = Date.now() + 1000; // pages without columns: don't rescan constantly
     return;
   }
-  const { row, anchor } = found;
-  // Order columns visually, not by DOM order (LinkedIn uses grid-areas).
-  const cols = flowChildren(row).sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
+  // Columns are ordered visually, not by DOM order (LinkedIn uses grid-areas).
+  const { row, cols, anchor } = found;
   const mi = mainIndex(cols, anchor);
-  const template = cols.map((_, i) => (i === mi ? 'minmax(0, 1fr)' : 'var(--fll-side)')).join(' ');
+  // Side columns never get narrower than LinkedIn made them (e.g. the job list).
+  const template = cols
+    .map((c, i) =>
+      i === mi ? 'minmax(0, 1fr)' : `max(var(--fll-side), ${Math.round(c.getBoundingClientRect().width)}px)`,
+    )
+    .join(' ');
 
   state.row = row;
   tag(row, 'data-fll-row');
@@ -247,8 +354,21 @@ function applyRow(): void {
     tag(c, 'data-fll-col', i === mi ? 'main' : i < mi ? 'left' : 'right');
     tag(c, 'data-fll-col-i', String(i + 1));
   });
-  for (let el = row.parentElement; el && el !== document.body; el = el.parentElement) tag(el, 'data-fll-widen', 'outer');
+  widenAncestors(row);
   stretchColumns(row);
+}
+
+/** Make `el`'s wrappers span the page, minus the dock (some are sized to the window). */
+function widenAncestors(el: Element): void {
+  for (let cur = el.parentElement; cur && cur !== document.body; cur = cur.parentElement) {
+    tag(cur, 'data-fll-widen', 'outer');
+  }
+}
+
+/** Also for pages without a column row, so nothing ends up under the dock. */
+function widenPage(): void {
+  if (state.header) widenAncestors(state.header);
+  for (const anchor of mainAnchors()) widenAncestors(anchor);
 }
 
 const BLOCKISH = new Set(['block', 'flow-root', 'flex', 'grid', 'list-item']);
@@ -295,12 +415,16 @@ function outermostFixedAncestor(el: Element): HTMLElement | undefined {
 function findMessaging(): { root: HTMLElement; list: HTMLElement } | undefined {
   // 1. Known (legacy) class names.
   // (The root may have zero size once its list bubble is docked/fixed.)
-  const knownRoot = MSG_ROOT_SELECTORS.map((sel) => document.querySelector<HTMLElement>(sel)).find(
-    (el) => el && getComputedStyle(el).display !== 'none',
-  );
-  if (knownRoot) {
+  //    Newer LinkedIn pages render the overlay inside a shadow root.
+  for (const searchRoot of searchRoots()) {
+    const knownRoot = MSG_ROOT_SELECTORS.map((sel) => searchRoot.querySelector<HTMLElement>(sel)).find(
+      (el) => el && getComputedStyle(el).display !== 'none',
+    );
+    if (!knownRoot) continue;
     const list = firstVisible(MSG_LIST_SELECTORS, knownRoot);
-    if (list) return { root: knownRoot, list };
+    if (!list) continue;
+    if (searchRoot instanceof ShadowRoot) adoptShadow(searchRoot);
+    return { root: knownRoot, list };
   }
 
   // 2. Structure: a "Messaging" title inside a fixed panel docked to the
@@ -356,21 +480,26 @@ function isMinimized(list: HTMLElement): boolean {
   return list.getBoundingClientRect().height < 120;
 }
 
-/** Find the scrolling conversation list and make it fill the docked panel. */
+/**
+ * Find the scrolling conversation list and make it fill the docked panel.
+ * Re-checked on every pass: the list loads after the panel, and until then a
+ * smaller scroller (e.g. the Focused/Other tab strip) can look like the best one.
+ */
 function tagMessagingScroller(list: HTMLElement): void {
-  if (list.querySelector('[data-fll-msg-scroll]')) return;
   let best: HTMLElement | undefined;
-  let bestArea = 0;
+  let bestSize = 0;
   for (const el of list.querySelectorAll<HTMLElement>('*')) {
     const oy = getComputedStyle(el).overflowY;
     if (oy !== 'auto' && oy !== 'scroll') continue;
-    const r = el.getBoundingClientRect();
-    if (r.width * r.height > bestArea) {
+    const size = el.scrollHeight * el.clientWidth;
+    if (size > bestSize) {
       best = el;
-      bestArea = r.width * r.height;
+      bestSize = size;
     }
   }
-  if (!best) return;
+  if (!best || best.hasAttribute('data-fll-msg-scroll')) return;
+  untagAll('data-fll-msg-scroll');
+  untagAll('data-fll-msg-flex');
   tag(best, 'data-fll-msg-scroll');
   for (let el = best.parentElement; el && el !== list; el = el.parentElement) {
     tag(el, 'data-fll-msg-flex', getComputedStyle(el).display.includes('flex') ? 'flex' : 'block');
@@ -406,7 +535,7 @@ function applyMessaging(vw: number): void {
   }
   const { root, list } = found;
   if (state.msgList !== list) {
-    for (const t of ['data-fll-msg', 'data-fll-msg-list', 'data-fll-msg-flex', 'data-fll-msg-scroll'] as const) {
+    for (const t of ['data-fll-msg', 'data-fll-msg-list', 'data-fll-msg-flex', 'data-fll-msg-scroll', 'data-fll-msg-layer'] as const) {
       untagAll(t);
     }
     state.msgRoot = root;
@@ -427,6 +556,8 @@ function applyMessaging(vw: number): void {
   if (root !== list) tag(root, 'data-fll-msg');
 
   const wantDock = settings.dockMessaging && vw >= settings.dockMinWidth;
+  // Re-pick the scroller first: a stale one can collapse and look minimized.
+  if (list.hasAttribute('data-fll-msg-list')) tagMessagingScroller(list);
   const minimized = isMinimized(list);
 
   // A minimize right after the user clicked the panel is deliberate: respect it.
@@ -444,10 +575,25 @@ function applyMessaging(vw: number): void {
   if (dock) {
     tag(list, 'data-fll-msg-list');
     tagMessagingScroller(list);
+    liftDock(list);
   } else {
     list.removeAttribute('data-fll-msg-list');
+    untagAll('data-fll-msg-layer');
   }
   setDocked(dock);
+}
+
+/**
+ * Put the dock above everything else on the page (e.g. the fixed header) by
+ * raising the stacking contexts around it, stopping before any shared with the header.
+ */
+function liftDock(list: HTMLElement): void {
+  for (let el: Element | null = list; el && el !== document.body; ) {
+    if (state.header && el.contains(state.header)) break;
+    if (getComputedStyle(el).zIndex !== 'auto') tag(el, 'data-fll-msg-layer');
+    const parent: Element | null = el.parentElement;
+    el = parent ?? (el.getRootNode() instanceof ShadowRoot ? (el.getRootNode() as ShadowRoot).host : null);
+  }
 }
 
 function setDocked(docked: boolean): void {
@@ -477,14 +623,13 @@ function apply(): void {
     autoOpenAttempts = 0;
     state.row = undefined; // force a fresh column scan on navigation
     nextRowSearch = 0;
+    urlChangedAt = Date.now();
   }
   ROOT.classList.add('fll-active');
   applyHeader();
   applyRow();
+  widenPage();
   applyMessaging(vw);
-  if (state.header) {
-    ROOT.style.setProperty('--fll-header-h', `${Math.round(state.header.getBoundingClientRect().height)}px`);
-  }
 }
 
 let timer: number | undefined;
@@ -572,7 +717,8 @@ async function init(): Promise<void> {
     if (msg?.type === 'fll:diagnostics') sendResponse(diagnostics());
   });
 
-  new MutationObserver(() => schedule()).observe(document.body, { childList: true, subtree: true });
+  domObserver.observe(document.body, { childList: true, subtree: true });
+  for (const root of shadowRoots()) adoptShadow(root);
   window.addEventListener('resize', () => schedule());
   window.addEventListener('popstate', () => schedule());
   schedule(0);

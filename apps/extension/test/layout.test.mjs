@@ -4,7 +4,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { chromium } from 'playwright';
-import { legacyPage, hashedPage } from './fixtures/page.mjs';
+import { legacyPage, hashedPage, shadowPage, singlePage } from './fixtures/page.mjs';
 
 const EXT = resolve('dist');
 let context;
@@ -32,6 +32,8 @@ async function open(variant, width, height = 1120) {
 function measure(page) {
   return page.evaluate(() => {
     const r = (el) => el && el.getBoundingClientRect().toJSON();
+    const shadow = document.getElementById('interop-outlet')?.shadowRoot;
+    const q = (sel) => document.querySelector(sel) ?? shadow?.querySelector(sel);
     const cols = [...document.querySelectorAll('[data-fll-col]')]
       .map((el) => ({ kind: el.getAttribute('data-fll-col'), ...r(el) }))
       .sort((a, b) => a.left - b.left);
@@ -43,9 +45,10 @@ function measure(page) {
       lastNavItem: r(document.querySelector('a[href="/business/"]')),
       cols,
       feed: r(document.querySelector('.feed')),
-      msg: r(document.querySelector('[data-fll-msg-list]')),
-      convScroll: r(document.querySelector('.conv-scroll')),
-      bubble: r(document.querySelector('.conversation-bubble')),
+      msg: r(q('[data-fll-msg-list]')),
+      convScroll: r(q('.conv-scroll')),
+      bubble: r(q('.conversation-bubble')),
+      shadowStyles: shadow ? [...shadow.children].filter((el) => el.hasAttribute('data-fll-style')).length : 1,
       menuOpened: !!window.__menuOpened,
     };
   });
@@ -67,11 +70,12 @@ function assertAligned(m, { docked }) {
   near(m.feed.width, main.width, 'feed fills main column', 3);
   if (docked) {
     assert.match(m.classes, /fll-docked/);
-    near(m.msg.right, m.vw - 20, 'dock at right gutter');
+    near(m.msg.right, m.vw, 'dock flush with right edge');
     near(m.msg.left - right.right, 24, 'gap right rail|dock');
-    near(m.msg.top, right.top, 'dock top aligns with columns', 2);
+    near(m.msg.top, 0, 'dock flush with top edge');
     near(m.msg.bottom, 1120, 'dock is full height');
     assert.ok(m.convScroll.height > 600, `conversation list fills dock (${m.convScroll.height})`);
+    assert.equal(m.shadowStyles, 1, 'styles injected into the shadow root exactly once');
   } else {
     assert.doesNotMatch(m.classes, /fll-docked/);
     near(right.right, m.vw - 20, 'right rail ends at gutter');
@@ -81,11 +85,17 @@ function assertAligned(m, { docked }) {
 for (const [name, variant] of [
   ['legacy', legacyPage],
   ['hashed', hashedPage],
+  ['shadow', shadowPage],
 ]) {
   test(`${name}: wide screen docks messaging and aligns everything`, async () => {
     const page = await open(variant, 2000);
     await page.waitForFunction(() => document.documentElement.classList.contains('fll-docked'), null, { timeout: 5000 });
-    await page.waitForTimeout(300);
+    await page.waitForFunction(
+      () => (document.getElementById('interop-outlet')?.shadowRoot ?? document).querySelector('.conv-scroll li'),
+      null,
+      { timeout: 5000 },
+    );
+    await page.waitForTimeout(400);
     const m = await measure(page);
     assertAligned(m, { docked: true });
     assert.equal(m.menuOpened, false, 'did not click the "…" menu button');
@@ -153,3 +163,28 @@ for (const [name, variant] of [
     await page.close();
   });
 }
+
+test('single column: fills the page and stays clear of the dock', async () => {
+  const page = await open(singlePage, 2000);
+  await page.waitForFunction(() => document.documentElement.classList.contains('fll-docked'), null, { timeout: 5000 });
+  await page.waitForTimeout(400);
+  let m = await measure(page);
+  const main = await page.evaluate(() => document.querySelector('main').getBoundingClientRect().toJSON());
+  assert.equal(m.cols.length, 1);
+  const [col] = m.cols;
+  near(col.left, 20, 'column starts at gutter');
+  near(m.msg.right, m.vw, 'dock flush with right edge');
+  near(m.msg.left - col.right, 24, 'gap column|dock');
+  assert.ok(main.right <= m.msg.left, `page wrappers end before the dock (${main.right} <= ${m.msg.left})`);
+  near(m.logo.left, col.left, 'logo aligns with column');
+  near(m.lastNavItem.right, col.right, 'header content ends where the column ends');
+  await page.screenshot({ path: 'test/out-single-2000.png' });
+
+  await page.setViewportSize({ width: 1400, height: 1120 });
+  await page.waitForTimeout(500);
+  m = await measure(page);
+  assert.doesNotMatch(m.classes, /fll-docked/);
+  near(m.cols[0].left, 20, 'column starts at gutter');
+  near(m.cols[0].right, m.vw - 20, 'column ends at gutter');
+  await page.close();
+});

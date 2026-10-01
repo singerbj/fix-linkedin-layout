@@ -13,7 +13,8 @@ html.fll-active {
   --fll-dock: 0px;
 }
 html.fll-active.fll-docked {
-  --fll-dock: calc(var(--fll-msg-w) + var(--fll-gap));
+  /* The dock sits flush against the window's right edge, with no gutter. */
+  --fll-dock: calc(var(--fll-msg-w) + var(--fll-gap) - var(--fll-gutter));
 }
 
 /* Wrappers that used to cap/center the content at ~1128px. */
@@ -36,8 +37,12 @@ html.fll-active.fll-docked body {
 }
 
 /* Header: same left/right edges as the column row. */
+/* A fixed header spans the window and would cover the dock: end it where the dock starts. */
 html.fll-active.fll-docked [data-fll-header='fixed'] {
-  --fll-header-reserve: var(--fll-dock);
+  left: 0 !important;
+  right: var(--fll-msg-w) !important;
+  width: auto !important;
+  --fll-header-reserve: calc(var(--fll-gap) - var(--fll-gutter));
 }
 html.fll-active [data-fll-header-inner] {
   max-width: none !important;
@@ -73,6 +78,10 @@ html.fll-active [data-fll-col] {
   margin-left: 0 !important;
   margin-right: 0 !important;
 }
+/* Anything else in the row (e.g. a footer below the columns) spans all of them. */
+html.fll-active [data-fll-row] > :not([data-fll-col]) {
+  grid-column: 1 / -1 !important;
+}
 html.fll-active [data-fll-col-i='1'] { grid-column: 1 !important; }
 html.fll-active [data-fll-col-i='2'] { grid-column: 2 !important; }
 html.fll-active [data-fll-col-i='3'] { grid-column: 3 !important; }
@@ -82,8 +91,8 @@ html.fll-active [data-fll-col-i='5'] { grid-column: 5 !important; }
 /* Messaging docked as a full-height right sidebar. */
 html.fll-active.fll-docked [data-fll-msg-list] {
   position: fixed !important;
-  top: calc(var(--fll-header-h, 52px) + var(--fll-gap)) !important;
-  right: var(--fll-gutter) !important;
+  top: 0 !important;
+  right: 0 !important;
   bottom: 0 !important;
   left: auto !important;
   width: var(--fll-msg-w) !important;
@@ -96,6 +105,12 @@ html.fll-active.fll-docked [data-fll-msg-list] {
   flex-direction: column !important;
   transform: none !important;
   box-sizing: border-box !important;
+  border-radius: 0 !important;
+  border-top-width: 0 !important;
+  border-right-width: 0 !important;
+}
+html.fll-active.fll-docked [data-fll-msg-layer] {
+  z-index: 2147483000 !important;
 }
 /* Open conversation bubbles stack to the left of the dock. */
 html.fll-active.fll-docked [data-fll-msg] {

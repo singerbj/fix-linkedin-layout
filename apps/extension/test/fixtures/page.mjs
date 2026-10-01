@@ -2,6 +2,8 @@
 // screenshots: a 1128px-capped header/body and a floating messaging overlay.
 // `legacy` uses LinkedIn's long-standing class names; `hashed` uses random
 // class names, a different DOM order and no ids, to exercise the heuristics.
+// `shadow` is `legacy` with the messaging overlay rendered late inside the
+// open shadow root of `#interop-outlet`, as LinkedIn's newer pages do.
 
 const lorem = (n) => 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. '.repeat(n);
 
@@ -63,10 +65,10 @@ function messaging(cls) {
   </div>`;
 }
 
-const toggleScript = (listSel, minimizedClass) => `
+const toggleScript = (listSel, minimizedClass, root = 'document') => `
   <script>
     window.__toggleMsg = () => {
-      const l = document.querySelector('${listSel}');
+      const l = ${root}.querySelector('${listSel}');
       l.classList.toggle('${minimizedClass}');
       l.classList.toggle('minimized');
     };
@@ -75,23 +77,23 @@ const toggleScript = (listSel, minimizedClass) => `
       b.className = 'conversation-bubble';
       b.style.cssText = 'width:336px;height:400px;background:#fff;border:1px solid #999;margin-right:8px';
       b.textContent = 'Conversation with Erick';
-      document.querySelector('${listSel}').parentElement.appendChild(b);
+      ${root}.querySelector('${listSel}').parentElement.appendChild(b);
     };
   </script>`;
 
-export function legacyPage(title = 'feed') {
-  const cls = {
-    header: 'id="global-nav" class="global-nav" style="position:fixed;top:0;left:0;width:100%;height:52px;background:#fff;z-index:10"',
-    headerInner:
-      'class="global-nav__content" style="max-width:1128px;margin:0 auto;padding:0 24px;height:52px;display:flex;align-items:center"',
-    msgRoot:
-      'id="msg-overlay" class="msg-overlay-container" style="position:fixed;bottom:0;right:0;display:flex;flex-direction:row-reverse;align-items:flex-end;z-index:20"',
-    msgList:
-      'class="msg-overlay-list-bubble msg-overlay-list-bubble--is-minimized minimized" style="width:288px;height:calc(100vh - 100px);background:#fff;border:1px solid #ccc;margin-right:20px"',
-    msgHeader:
-      'class="msg-overlay-bubble-header" style="height:48px;display:flex;align-items:center" onclick="window.__toggleMsg()"',
-  };
-  return `<!doctype html><html><head><style>${baseCss}
+const legacyClasses = () => ({
+  header: 'id="global-nav" class="global-nav" style="position:fixed;top:0;left:0;width:100%;height:52px;background:#fff;z-index:10"',
+  headerInner:
+    'class="global-nav__content" style="max-width:1128px;margin:0 auto;padding:0 24px;height:52px;display:flex;align-items:center"',
+  msgRoot:
+    'id="msg-overlay" class="msg-overlay-container" style="position:fixed;bottom:0;right:0;display:flex;flex-direction:row-reverse;align-items:flex-end;z-index:20"',
+  msgList:
+    'class="msg-overlay-list-bubble msg-overlay-list-bubble--is-minimized minimized" style="width:288px;height:calc(100vh - 100px);background:#fff;border:1px solid #ccc;margin-right:20px"',
+  msgHeader:
+    'class="msg-overlay-bubble-header" style="height:48px;display:flex;align-items:center" onclick="window.__toggleMsg()"',
+});
+
+const legacyLayout = (title, cls, messagingHtml) => `<!doctype html><html><head><style>${baseCss}
     .msg-overlay-list-bubble--is-minimized { height:48px !important; }
     .scaffold-layout__row { display:grid; grid-template-columns:225px 555px 300px; column-gap:24px; grid-template-areas:'sidebar main aside'; }
     .scaffold-layout__sidebar { grid-area:sidebar } .scaffold-layout__main { grid-area:main } .scaffold-layout__aside { grid-area:aside }
@@ -108,9 +110,70 @@ export function legacyPage(title = 'feed') {
       </div>
     </div>
   </div>
-  ${messaging(cls)}
-  </div>
+  ${messagingHtml}
+  </div>`;
+
+export function legacyPage(title = 'feed') {
+  const cls = legacyClasses();
+  return `${legacyLayout(title, cls, messaging(cls))}
   ${toggleScript('.msg-overlay-list-bubble', 'msg-overlay-list-bubble--is-minimized')}
+  </body></html>`;
+}
+
+/**
+ * Messaging rendered late inside the open shadow root of `#interop-outlet`.
+ * Like LinkedIn, the tab strip scrolls too, and the conversation list starts
+ * empty (and unsized) and fills in later.
+ */
+function shadowMessaging(cls) {
+  const panel = messaging(cls)
+    .replace('class="tabs" style="height:40px"', 'class="tabs" style="height:40px;overflow-y:auto"')
+    .replace('style="overflow-y:auto;flex:1"', 'style="overflow-y:auto"')
+    .replace(`<ul>${conversations}</ul>`, '<ul></ul>');
+  const shadowHtml = `<style>${baseCss} .msg-overlay-list-bubble--is-minimized { height:48px !important; }</style>${panel}`;
+  const root = "document.getElementById('interop-outlet').shadowRoot";
+  return {
+    host: '<div id="interop-outlet"></div>',
+    scripts: `
+  <script>
+    const sr = document.getElementById('interop-outlet').attachShadow({ mode: 'open' });
+    setTimeout(() => { sr.innerHTML = ${JSON.stringify(shadowHtml).replace(/</g, '\\u003c')}; }, 800);
+    setTimeout(() => { sr.querySelector('.conv-scroll ul').innerHTML = ${JSON.stringify(conversations).replace(/</g, '\\u003c')}; }, 1600);
+  </script>
+  ${toggleScript('.msg-overlay-list-bubble', 'msg-overlay-list-bubble--is-minimized', root)}`,
+  };
+}
+
+export function shadowPage(title = 'feed') {
+  const cls = legacyClasses();
+  const msg = shadowMessaging(cls);
+  return `${legacyLayout(title, cls, msg.host)}
+  ${msg.scripts}
+  </body></html>`;
+}
+
+/**
+ * Newer single-column pages (e.g. Events): wrappers sized to the window
+ * (100vw), a flow header, one centred 1128px column and shadow-root messaging.
+ */
+export function singlePage(title = 'events') {
+  const cls = {
+    ...legacyClasses(),
+    header: 'class="_h1" style="height:52px;background:#fff"',
+    headerInner: 'class="_h2" style="height:52px;display:flex;align-items:center;padding:0 24px"',
+  };
+  const msg = shadowMessaging(cls);
+  return `<!doctype html><html><head><style>${baseCss}</style></head><body>
+  <div id="root"><div class="_s1" style="display:grid;width:100vw">
+    ${headerHtml(cls)}
+    <main id="workspace" style="width:100vw;padding-top:24px">
+      <div class="_cap" style="max-width:1128px;margin:0 auto">
+        <div class="card events" style="height:1600px">${title}</div>
+      </div>
+    </main>
+  </div></div>
+  ${msg.host}
+  ${msg.scripts}
   </body></html>`;
 }
 

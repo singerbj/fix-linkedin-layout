@@ -18,6 +18,7 @@ const options = {
   format: 'iife',
   target: 'chrome120',
   logLevel: 'info',
+  loader: { '.css': 'text' },
 };
 
 if (watch) {
