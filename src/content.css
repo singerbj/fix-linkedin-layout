@@ -1,0 +1,138 @@
+/*
+ * Fix LinkedIn Layout. Every rule targets html.fll-active plus a data-fll-*
+ * attribute that content.ts sets after identifying an element, so nothing
+ * here applies until detection succeeds (or when the extension is disabled).
+ *
+ *  | gutter | left | gap | main (fills) | gap | right | gap | messaging | gutter |
+ */
+html.fll-active {
+  --fll-gutter: 20px;
+  --fll-gap: 24px;
+  --fll-side: clamp(220px, 16vw, 340px);
+  --fll-msg-w: clamp(360px, 25vw, 520px);
+  --fll-dock: 0px;
+}
+html.fll-active.fll-docked {
+  --fll-dock: calc(var(--fll-msg-w) + var(--fll-gap));
+}
+
+/* Wrappers that used to cap/center the content at ~1128px. */
+html.fll-active [data-fll-widen] {
+  max-width: none !important;
+  width: 100% !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  box-sizing: border-box !important;
+}
+html.fll-active [data-fll-widen='outer'] {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+/* Keep everything clear of the docked messaging sidebar. */
+html.fll-active.fll-docked body {
+  padding-right: var(--fll-dock) !important;
+  box-sizing: border-box !important;
+}
+
+/* Header: same left/right edges as the column row. */
+html.fll-active.fll-docked [data-fll-header='fixed'] {
+  --fll-header-reserve: var(--fll-dock);
+}
+html.fll-active [data-fll-header-inner] {
+  max-width: none !important;
+  width: 100% !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  padding-left: var(--fll-gutter) !important;
+  padding-right: calc(var(--fll-gutter) + var(--fll-header-reserve, 0px)) !important;
+  box-sizing: border-box !important;
+}
+
+/* Column row. */
+html.fll-active [data-fll-row] {
+  display: grid !important;
+  grid-template-columns: var(--fll-cols) !important;
+  grid-template-areas: none !important;
+  column-gap: var(--fll-gap) !important;
+  row-gap: 0 !important;
+  width: 100% !important;
+  max-width: none !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  padding-left: var(--fll-gutter) !important;
+  padding-right: var(--fll-gutter) !important;
+  box-sizing: border-box !important;
+}
+html.fll-active [data-fll-col] {
+  grid-row: 1 !important;
+  justify-self: stretch !important;
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+html.fll-active [data-fll-col-i='1'] { grid-column: 1 !important; }
+html.fll-active [data-fll-col-i='2'] { grid-column: 2 !important; }
+html.fll-active [data-fll-col-i='3'] { grid-column: 3 !important; }
+html.fll-active [data-fll-col-i='4'] { grid-column: 4 !important; }
+html.fll-active [data-fll-col-i='5'] { grid-column: 5 !important; }
+
+/* Messaging docked as a full-height right sidebar. */
+html.fll-active.fll-docked [data-fll-msg-list] {
+  position: fixed !important;
+  top: calc(var(--fll-header-h, 52px) + var(--fll-gap)) !important;
+  right: var(--fll-gutter) !important;
+  bottom: 0 !important;
+  left: auto !important;
+  width: var(--fll-msg-w) !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  height: auto !important;
+  max-height: none !important;
+  margin: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  transform: none !important;
+  box-sizing: border-box !important;
+}
+/* Open conversation bubbles stack to the left of the dock. */
+html.fll-active.fll-docked [data-fll-msg] {
+  right: var(--fll-dock) !important;
+}
+html.fll-active.fll-docked [data-fll-msg-list] > *,
+html.fll-active.fll-docked [data-fll-msg-flex] > * {
+  flex-shrink: 0 !important;
+}
+/* Zero specificity: LinkedIn's own rules (e.g. display:none while minimized) win. */
+:where(html.fll-active.fll-docked [data-fll-msg-flex='block']) {
+  display: flex;
+  flex-direction: column;
+}
+html.fll-active.fll-docked [data-fll-msg-flex] {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  height: auto !important;
+  max-height: none !important;
+}
+html.fll-active.fll-docked [data-fll-msg-list] > [data-fll-msg-flex],
+html.fll-active.fll-docked [data-fll-msg-list] > [data-fll-msg-scroll],
+html.fll-active.fll-docked [data-fll-msg-flex] > [data-fll-msg-flex],
+html.fll-active.fll-docked [data-fll-msg-flex] > [data-fll-msg-scroll] {
+  flex: 1 1 auto !important;
+  flex-shrink: 1 !important;
+}
+html.fll-active.fll-docked [data-fll-msg-scroll] {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  height: auto !important;
+  max-height: none !important;
+}
+
+/* Debug outlines (toggle in the popup). */
+html.fll-debug [data-fll-header-inner] { outline: 2px dashed #e91e63 !important; outline-offset: -2px; }
+html.fll-debug [data-fll-row] { outline: 2px dashed #9c27b0 !important; outline-offset: -2px; }
+html.fll-debug [data-fll-col] { outline: 2px solid #00bcd4 !important; outline-offset: -2px; }
+html.fll-debug [data-fll-widen='inner'] { outline: 1px dotted #ff9800 !important; }
+html.fll-debug [data-fll-msg-list] { outline: 2px solid #4caf50 !important; outline-offset: -2px; }
