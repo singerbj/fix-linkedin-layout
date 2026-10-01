@@ -1,4 +1,6 @@
 node_modules/
 dist/
+.turbo/
 *.zip
-test/out-*.png
+*.tsbuildinfo
+apps/extension/test/out-*.png
