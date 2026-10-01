@@ -29,7 +29,7 @@ npm run typecheck
 npm test
 ```
 
-The website is deployed to GitHub Pages (`gh-pages` branch) by `.github/workflows/deploy-web.yml` on every push to `main` that touches it.
+The website is deployed to GitHub Pages by `.github/workflows/deploy-web.yml` on every push to `main` that touches it, using the official Pages actions (no `gh-pages` branch). The repo's **Settings → Pages → Source** must be set to **GitHub Actions**.
 
 Run a task for one app with a filter, e.g. `npx turbo run dev --filter=@fix-linkedin-layout/web`.
 
