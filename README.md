@@ -10,6 +10,29 @@ Chrome extension (Manifest V3, TypeScript) that fixes LinkedIn's desktop layout:
 | 20 | left | 24 | main (fills) | 24 | right | 24 | messaging | 20 |
 ```
 
+## Repository layout
+
+This is a [Turborepo](https://turborepo.com) monorepo using npm workspaces:
+
+| Path | What |
+| --- | --- |
+| `apps/extension` | The Chrome extension (TypeScript, esbuild, Playwright tests) |
+| `apps/web` | Landing page (Vite + React + TypeScript) |
+
+Requires Node.js 22.12 or newer.
+
+```sh
+npm install
+npm run build      # build everything
+npm run dev        # extension in watch mode + website dev server
+npm run typecheck
+npm test
+```
+
+The website is deployed to GitHub Pages (`gh-pages` branch) by `.github/workflows/deploy-web.yml` on every push to `main` that touches it.
+
+Run a task for one app with a filter, e.g. `npx turbo run dev --filter=@fix-linkedin-layout/web`.
+
 ## Install
 
 ```sh
@@ -17,8 +40,8 @@ npm install
 npm run build
 ```
 
-Then go to `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**, and pick the `dist/` folder.
-After you change the code, run `npm run build` (or `npm run watch`) and click reload on the extension card.
+Then go to `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**, and pick the `apps/extension/dist/` folder.
+After you change the code, run `npm run build` (or `npm run dev`) and click reload on the extension card.
 
 ## Settings (toolbar popup)
 
@@ -33,13 +56,13 @@ After you change the code, run `npm run build` (or `npm run watch`) and click re
 
 ## How it works
 
-LinkedIn ships obfuscated class names that change often, so `src/content.ts` doesn't depend on them. It identifies the page structure like this:
+LinkedIn ships obfuscated class names that change often, so `apps/extension/src/content.ts` doesn't depend on them. It identifies the page structure like this:
 
 - **Header**: `#global-nav` / `header`. Its content container is the deepest element that still contains every visible control.
 - **Column row**: starting from the feed (`.scaffold-layout__main`, `[data-testid="mainFeed"]`, `main`, …), walk up until an ancestor lays out two or more large children side by side. Columns are ordered by their on-screen position, not DOM order.
 - **Messaging**: `#msg-overlay` / `.msg-overlay-list-bubble` when present. Otherwise, a fixed panel at the bottom right of the viewport that contains a "Messaging" title.
 
-Each piece it finds gets a `data-fll-*` attribute. All the styling is in `src/content.css` and targets only those attributes, so nothing changes on elements that weren't identified.
+Each piece it finds gets a `data-fll-*` attribute. All the styling is in `apps/extension/src/content.css` and targets only those attributes, so nothing changes on elements that weren't identified.
 
 ## If something looks off
 
@@ -53,3 +76,11 @@ LinkedIn changes its markup often. Open the popup on the broken page and click *
 - full-width layout without the dock at 1400px
 - no changes at 1100px
 - SPA re-render, resize, opening a conversation, and a user minimizing messaging
+
+## Contributing
+
+Issues and pull requests are welcome. Please run `npm run typecheck` and `npm test` before opening a PR.
+
+## License
+
+[MIT](LICENSE). Not affiliated with or endorsed by LinkedIn.
