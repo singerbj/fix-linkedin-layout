@@ -1,1 +1,55 @@
-# fix-linkedin-layout
+# Fix LinkedIn Layout
+
+Chrome extension (Manifest V3, TypeScript) that fixes LinkedIn's desktop layout:
+
+- The header and the left / main / right columns stretch to the full window and share the same left and right edges, so nothing is off-centre any more.
+- On wide screens (≥ 1600px by default) the messaging panel is docked as a full-height sidebar on the right. It opens automatically on load. Conversations you open appear to its left.
+- The fix is re-applied as you use the page: SPA navigation, lazy-loaded rails, resizes, and messaging opening or closing.
+
+```
+| 20 | left | 24 | main (fills) | 24 | right | 24 | messaging | 20 |
+```
+
+## Install
+
+```sh
+npm install
+npm run build
+```
+
+Then go to `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**, and pick the `dist/` folder.
+After you change the code, run `npm run build` (or `npm run watch`) and click reload on the extension card.
+
+## Settings (toolbar popup)
+
+| Setting | Default | |
+| --- | --- | --- |
+| Enabled | on | Master switch |
+| Apply from width | 1200px | Below this width LinkedIn's own layout is left alone |
+| Dock messaging sidebar | on | |
+| Dock from width | 1600px | |
+| Auto-open messaging | on | Opens the panel on load. If you minimize it yourself, it stays minimized and the columns take the space back |
+| Debug outlines | off | Outlines every element the extension re-laid out |
+
+## How it works
+
+LinkedIn ships obfuscated class names that change often, so `src/content.ts` doesn't depend on them. It identifies the page structure like this:
+
+- **Header**: `#global-nav` / `header`. Its content container is the deepest element that still contains every visible control.
+- **Column row**: starting from the feed (`.scaffold-layout__main`, `[data-testid="mainFeed"]`, `main`, …), walk up until an ancestor lays out two or more large children side by side. Columns are ordered by their on-screen position, not DOM order.
+- **Messaging**: `#msg-overlay` / `.msg-overlay-list-bubble` when present. Otherwise, a fixed panel at the bottom right of the viewport that contains a "Messaging" title.
+
+Each piece it finds gets a `data-fll-*` attribute. All the styling is in `src/content.css` and targets only those attributes, so nothing changes on elements that weren't identified.
+
+## If something looks off
+
+LinkedIn changes its markup often. Open the popup on the broken page and click **Copy diagnostics**. That copies a JSON snapshot of what was detected: element tags, classes, `data-*` attributes and sizes, with no post content. Include it in an issue.
+
+## Tests
+
+`npm test` builds the extension, loads it into headless Chromium and runs it against two mock LinkedIn pages: one with LinkedIn's classic class names and one with random class names and a different DOM order. It checks:
+
+- alignment and docking at 2000px
+- full-width layout without the dock at 1400px
+- no changes at 1100px
+- SPA re-render, resize, opening a conversation, and a user minimizing messaging
