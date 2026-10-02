@@ -29,18 +29,22 @@ npm run typecheck
 npm test
 ```
 
-The website is deployed to GitHub Pages by `.github/workflows/deploy-web.yml` on every push to `main` that touches it, using the official Pages actions (no `gh-pages` branch). The repo's **Settings → Pages → Source** must be set to **GitHub Actions**.
+The website is deployed to GitHub Pages by `.github/workflows/deploy.yml` on every push to `main` that touches the website or the extension, using the official Pages actions (no `gh-pages` branch). The same workflow builds the extension and publishes it next to the site as `fix-linkedin-layout.zip`, so the site's download button always serves the latest build from `main`. The version shown on the site is read from `apps/extension/manifest.json`. The repo's **Settings → Pages → Source** must be set to **GitHub Actions**.
 
 Run a task for one app with a filter, e.g. `npx turbo run dev --filter=@fix-linkedin-layout/web`.
 
 ## Install
+
+Download `fix-linkedin-layout.zip` from the [website](https://singerbj.github.io/fix-linkedin-layout/) and unzip it. Then go to `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**, and pick the unzipped folder.
+
+To build from source instead:
 
 ```sh
 npm install
 npm run build
 ```
 
-Then go to `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**, and pick the `apps/extension/dist/` folder.
+Then load the `apps/extension/dist/` folder the same way.
 After you change the code, run `npm run build` (or `npm run dev`) and click reload on the extension card.
 
 ## Settings (toolbar popup)

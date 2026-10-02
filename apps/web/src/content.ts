@@ -40,10 +40,15 @@ export const SETTINGS = [
   { name: 'Debug outlines', value: 'off', note: 'Outlines every element the extension re-laid out' },
 ] as const;
 
+export const EXTENSION_VERSION = __EXTENSION_VERSION__;
+
+// Built and published with the site by .github/workflows/deploy.yml.
+export const DOWNLOAD_URL = './fix-linkedin-layout.zip';
+
 export const INSTALL_STEPS = [
   {
-    title: 'Clone and build',
-    code: `git clone ${REPO_URL}.git\ncd fix-linkedin-layout\nnpm install\nnpm run build`,
+    title: 'Download and unzip',
+    body: `Download fix-linkedin-layout.zip (v${EXTENSION_VERSION}) and unzip it somewhere you'll keep it. Chrome loads the extension from that folder, so don't delete it afterwards.`,
   },
   {
     title: 'Open the extensions page',
@@ -51,6 +56,15 @@ export const INSTALL_STEPS = [
   },
   {
     title: 'Load it',
-    body: 'Click Load unpacked and pick the apps/extension/dist folder. Reload LinkedIn and you are done.',
+    body: 'Click Load unpacked and pick the unzipped folder (the one containing manifest.json). Reload LinkedIn and you are done.',
   },
 ] as const;
+
+export const UPDATE_NOTE =
+  'To update, download the zip again, replace the contents of the same folder, then click the reload icon on the extension card in chrome://extensions. Your settings are kept.';
+
+export const BUILD_FROM_SOURCE = `git clone ${REPO_URL}.git
+cd fix-linkedin-layout
+npm install
+npm run build
+# then Load unpacked → apps/extension/dist`;

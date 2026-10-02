@@ -10,6 +10,18 @@
         "dist/**"
       ]
     },
+    "@fix-linkedin-layout/web#build": {
+      "dependsOn": [
+        "^build"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/apps/extension/manifest.json"
+      ],
+      "outputs": [
+        "dist/**"
+      ]
+    },
     "typecheck": {
       "dependsOn": [
         "^build"

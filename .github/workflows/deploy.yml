@@ -1,14 +1,15 @@
-name: Deploy website
+name: Build extension and deploy website
 
 on:
   push:
     branches: [main]
     paths:
       - 'apps/web/**'
+      - 'apps/extension/**'
       - 'package.json'
       - 'package-lock.json'
       - 'turbo.json'
-      - '.github/workflows/deploy-web.yml'
+      - '.github/workflows/deploy.yml'
   workflow_dispatch:
 
 permissions:
@@ -30,7 +31,11 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npx turbo run build --filter=@fix-linkedin-layout/web
+      - run: npx turbo run build --filter=@fix-linkedin-layout/web --filter=@fix-linkedin-layout/extension
+      # Ship the latest extension build alongside the site at a stable URL.
+      - name: Package extension
+        working-directory: apps/extension/dist
+        run: zip -r ../../web/dist/fix-linkedin-layout.zip .
       - uses: actions/upload-pages-artifact@v5
         with:
           path: apps/web/dist
