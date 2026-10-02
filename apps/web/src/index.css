@@ -426,6 +426,19 @@ h3 {
   font-weight: 700;
 }
 
+.step-action {
+  margin-top: 12px;
+}
+
+.install-note {
+  margin: 16px 0;
+}
+
+.build-source summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
 pre {
   margin: 8px 0 0;
   padding: 14px 16px;

@@ -1,5 +1,14 @@
 import LayoutDemo from './LayoutDemo';
-import { FEATURES, INSTALL_STEPS, REPO_URL, SETTINGS } from './content';
+import {
+  BUILD_FROM_SOURCE,
+  DOWNLOAD_URL,
+  EXTENSION_VERSION,
+  FEATURES,
+  INSTALL_STEPS,
+  REPO_URL,
+  SETTINGS,
+  UPDATE_NOTE,
+} from './content';
 
 export default function App() {
   return (
@@ -29,8 +38,11 @@ export default function App() {
             surrounded by empty space.
           </p>
           <div className="cta">
-            <a className="button primary" href="#install">
-              Install it
+            <a className="button primary" href={DOWNLOAD_URL} download>
+              Download v{EXTENSION_VERSION}
+            </a>
+            <a className="button" href="#install">
+              How to install
             </a>
             <a className="button" href={REPO_URL}>
               View source
@@ -53,23 +65,33 @@ export default function App() {
 
         <section id="install" className="wrap">
           <h2>Install</h2>
+          <p className="section-lede">
+            The extension isn't on the Chrome Web Store, so it's installed in Developer mode. The download is built from
+            the latest code on <code>main</code>.
+          </p>
           <ol className="steps">
             {INSTALL_STEPS.map((s, i) => (
               <li key={s.title} className="card">
                 <span className="step-num">{i + 1}</span>
                 <div>
                   <h3>{s.title}</h3>
-                  {'code' in s ? (
-                    <pre>
-                      <code>{s.code}</code>
-                    </pre>
-                  ) : (
-                    <p>{s.body}</p>
+                  <p>{s.body}</p>
+                  {i === 0 && (
+                    <a className="button primary step-action" href={DOWNLOAD_URL} download>
+                      Download v{EXTENSION_VERSION}
+                    </a>
                   )}
                 </div>
               </li>
             ))}
           </ol>
+          <p className="section-lede install-note">{UPDATE_NOTE}</p>
+          <details className="card build-source">
+            <summary>Prefer to build it yourself?</summary>
+            <pre>
+              <code>{BUILD_FROM_SOURCE}</code>
+            </pre>
+          </details>
         </section>
 
         <section id="settings" className="wrap">

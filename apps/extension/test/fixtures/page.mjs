@@ -207,3 +207,14 @@ export function hashedPage(title = 'feed') {
   ${toggleScript('._b44', '_min')}
   </body></html>`;
 }
+
+/**
+ * The empty shell LinkedIn shows when it loads an older page into a
+ * window-sized iframe (`/preload/`) instead of navigating.
+ */
+export function iframeShell() {
+  return `<!doctype html><html><head><style>body { margin:0 }</style></head><body>
+  <div id="root"></div>
+  <iframe src="/preload/?_bprMode=vanilla" style="position:fixed;inset:0;width:100%;height:100%;border:0"></iframe>
+  </body></html>`;
+}

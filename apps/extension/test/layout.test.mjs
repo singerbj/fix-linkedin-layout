@@ -4,7 +4,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { chromium } from 'playwright';
-import { legacyPage, hashedPage, shadowPage, singlePage } from './fixtures/page.mjs';
+import { legacyPage, hashedPage, shadowPage, singlePage, iframeShell } from './fixtures/page.mjs';
 
 const EXT = resolve('dist');
 let context;
@@ -28,7 +28,7 @@ async function open(variant, width, height = 1120) {
   return page;
 }
 
-/** Geometry of the pieces we care about, in viewport px. */
+/** Geometry of the pieces we care about, in viewport px (of a page or frame). */
 function measure(page) {
   return page.evaluate(() => {
     const r = (el) => el && el.getBoundingClientRect().toJSON();
@@ -186,5 +186,15 @@ test('single column: fills the page and stays clear of the dock', async () => {
   assert.doesNotMatch(m.classes, /fll-docked/);
   near(m.cols[0].left, 20, 'column starts at gutter');
   near(m.cols[0].right, m.vw - 20, 'column ends at gutter');
+  await page.close();
+});
+
+test('page loaded inside LinkedIn\'s full-window iframe is fixed too', async () => {
+  const page = await open((path) => (path.startsWith('/preload/') ? legacyPage() : iframeShell()), 2000);
+  await page.waitForFunction(() => document.querySelector('iframe')?.contentDocument?.readyState === 'complete');
+  const frame = page.frames().find((f) => f.url().includes('/preload/'));
+  await frame.waitForFunction(() => document.documentElement.classList.contains('fll-docked'), null, { timeout: 5000 });
+  await frame.waitForTimeout(300);
+  assertAligned(await measure(frame), { docked: true });
   await page.close();
 });
