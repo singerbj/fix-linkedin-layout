@@ -701,6 +701,17 @@ function diagnostics(): unknown {
   };
 }
 
+/**
+ * Whether this frame is the one showing the page. Coming from some pages,
+ * LinkedIn renders the next one in a window-sized iframe over an empty shell.
+ */
+function showsPage(): boolean {
+  if (state.header) return true;
+  if (window !== window.top) return false;
+  const vw = viewportWidth();
+  return ![...document.querySelectorAll('iframe')].some((f) => isRendered(f) && f.getBoundingClientRect().width >= vw * 0.9);
+}
+
 // ---------------------------------------------------------------------------
 // Boot
 
@@ -714,7 +725,7 @@ async function init(): Promise<void> {
     schedule(0);
   });
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-    if (msg?.type === 'fll:diagnostics') sendResponse(diagnostics());
+    if (msg?.type === 'fll:diagnostics' && showsPage()) sendResponse(diagnostics());
   });
 
   domObserver.observe(document.body, { childList: true, subtree: true });
